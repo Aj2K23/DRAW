@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Draw Canvas</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --accent: #00f2fe;
+            --glass: rgba(255, 255, 255, 0.1);
+            --dark: #0f0c29;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; font-family: 'Plus Jakarta Sans', sans-serif; }
+
+        body {
+            background: radial-gradient(circle at center, #1e1e3f 0%, #0f0c29 100%);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* --- HEADER --- */
+        .header { position: fixed; top: 20px; text-align: center; pointer-events: none; z-index: 10; }
+        h1 { font-size: 1.4rem; letter-spacing: 6px; color: white; text-shadow: 0 0 15px var(--accent); margin-bottom: 5px; }
+        p { color: var(--accent); font-size: 0.6rem; opacity: 0.7; letter-spacing: 2px; }
+
+        /* --- CANVAS --- */
+        #canvas {
+            background: #ffffff;
+            border-radius: 20px;
+            cursor: crosshair;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+            width: 95vw;
+            height: 75vh;
+        }
+
+        /* --- DOCK UI --- */
+        .dock {
+            position: fixed;
+            bottom: 25px;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 10px 20px;
+            border-radius: 30px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            z-index: 100;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        }
+
+        .tool-btn {
+            background: transparent; border: none; color: white;
+            padding: 8px 12px; border-radius: 12px; cursor: pointer;
+            transition: 0.3s; opacity: 0.4; font-weight: 600;
+            display: flex; flex-direction: column; align-items: center; gap: 4px;
+        }
+
+        .tool-btn span { font-size: 1.1rem; }
+        .tool-btn small { font-size: 0.6rem; }
+        .tool-btn.active { opacity: 1; background: var(--glass); color: var(--accent); }
+
+        .color-circle {
+            width: 35px; height: 35px; border-radius: 50%; border: 2px solid #fff;
+            overflow: hidden; position: relative; cursor: pointer;
+        }
+        
+        input[type="color"] {
+            position: absolute; top: -10px; left: -10px; width: 60px; height: 60px; cursor: pointer; border: none;
+        }
+
+        .btn-action {
+            padding: 10px 15px; border-radius: 12px; border: none; font-weight: 800; cursor: pointer; font-size: 0.75rem;
+        }
+        .clear { background: rgba(255, 71, 87, 0.2); color: #ff4757; }
+        .save { background: var(--accent); color: #000; }
+
+        input[type="range"] { width: 70px; accent-color: var(--accent); cursor: pointer; }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Draw Canvas</h1>
+        
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <div class="dock">
+        <div class="color-circle">
+            <input type="color" id="colorPicker" value="#6c5ce7">
+        </div>
+
+        <button class="tool-btn active" id="pencilBtn"><span>✎</span><small>DRAW</small></button>
+        <button class="tool-btn" id="bucketBtn"><span>🪣</span><small>FILL</small></button>
+        <button class="tool-btn" id="eraserBtn"><span>🧽</span><small>ERASE</small></button>
+
+        <input type="range" id="lineWidth" min="1" max="60" value="10">
+
+        <button class="btn-action clear" id="clearBtn">RESET</button>
+        <button class="btn-action save" id="saveBtn">EXPORT</button>
+    </div>
+
+    <audio id="bgm" loop>
+        <source src="https://cdn.pixabay.com/audio/2022/01/18/audio_d0a13f69d2.mp3" type="audio/mpeg">
+    </audio>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const colorPicker = document.getElementById('colorPicker');
+        const lineWidth = document.getElementById('lineWidth');
+        const bgm = document.getElementById('bgm');
+
+        let drawing = false;
+        let currentMode = 'pencil';
+        let audioInitialized = false;
+
+        // 1. GLOBAL INTERACTION LISTENER (FOR AUDIO)
+        function initAudio() {
+            if (audioInitialized) return;
+            bgm.volume = 0.2;
+            bgm.play().catch(e => console.log("Audio Pending..."));
+            audioInitialized = true;
+            // Clean up the text hint
+            document.querySelector('.header p').innerText = "CREATIVE PLAYGROUND";
+        }
+
+        // 2. CANVAS SETUP
+        function initCanvas() {
+            const temp = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.putImageData(temp, 0, 0);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+        }
+        window.addEventListener('resize', initCanvas);
+        initCanvas();
+
+        // 3. GET POSITION
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: (clientX - rect.left) * (canvas.width / rect.width),
+                y: (clientY - rect.top) * (canvas.height / rect.height)
+            };
+        }
+
+        // 4. DRAWING
+        function start(e) {
+            initAudio(); // Trigger audio on first click/touch
+            const pos = getPos(e);
+            if (currentMode === 'bucket') {
+                floodFill(Math.floor(pos.x), Math.floor(pos.y), colorPicker.value);
+            } else {
+                drawing = true;
+                ctx.beginPath();
+                ctx.moveTo(pos.x, pos.y);
+            }
+        }
+
+        function move(e) {
+            if (!drawing || currentMode === 'bucket') return;
+            const pos = getPos(e);
+            ctx.lineWidth = lineWidth.value;
+            ctx.strokeStyle = (currentMode === 'eraser') ? "#FFFFFF" : colorPicker.value;
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+        }
+
+        function stop() { drawing = false; ctx.closePath(); }
+
+        // 5. PAINT BUCKET
+        function floodFill(startX, startY, fillHex) {
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            const targetPos = (startY * canvas.width + startX) * 4;
+            const sR = data[targetPos], sG = data[targetPos+1], sB = data[targetPos+2];
+            const r = parseInt(fillHex.slice(1,3), 16), g = parseInt(fillHex.slice(3,5), 16), b = parseInt(fillHex.slice(5,7), 16);
+            if (sR === r && sG === g && sB === b) return;
+            const stack = [[startX, startY]];
+            while (stack.length) {
+                const [x, y] = stack.pop();
+                const idx = (y * canvas.width + x) * 4;
+                if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) continue;
+                if (data[idx] !== sR || data[idx+1] !== sG || data[idx+2] !== sB) continue;
+                data[idx] = r; data[idx+1] = g; data[idx+2] = b; data[idx+3] = 255;
+                stack.push([x+1, y], [x-1, y], [x, y+1], [x, y-1]);
+            }
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+        // 6. LISTENERS
+        canvas.addEventListener('mousedown', start);
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', stop);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); start(e); }, {passive: false});
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); move(e); }, {passive: false});
+        canvas.addEventListener('touchend', stop);
+
+        // 7. UI
+        const btns = { pencil: document.getElementById('pencilBtn'), bucket: document.getElementById('bucketBtn'), eraser: document.getElementById('eraserBtn') };
+        function setMode(m) {
+            initAudio(); // Also trigger audio if they click a tool first
+            currentMode = m;
+            Object.values(btns).forEach(b => b.classList.remove('active'));
+            btns[m].classList.add('active');
+        }
+        btns.pencil.onclick = () => setMode('pencil');
+        btns.bucket.onclick = () => setMode('bucket');
+        btns.eraser.onclick = () => setMode('eraser');
+        document.getElementById('clearBtn').onclick = () => { ctx.fillStyle = "#fff"; ctx.fillRect(0,0,canvas.width,canvas.height); };
+        document.getElementById('saveBtn').onclick = () => {
+            const link = document.createElement('a');
+            link.download = 'weboreel-art.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        };
+    </script>
+</body>
+</html>
